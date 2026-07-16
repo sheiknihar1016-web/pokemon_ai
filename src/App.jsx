@@ -101,10 +101,46 @@ export default function App() {
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [modeIdx, setModeIdx]     = useState(0);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   const feedEnd  = useRef(null);
   const recRef   = useRef(null);
   const inputRef = useRef(null);
+  const autoModeRef = useRef(false);
+  const isSpeakingRef = useRef(false);
+  const transcriptRef = useRef('');
+
+  /* Send message ref to avoid stale closures in SpeechRec */
+  const sendMsgRef = useRef(null);
+
+  /* Text to Speech */
+  const speakText = (text) => {
+    if (!window.speechSynthesis) {
+      if (autoModeRef.current) { setTimeout(() => { try { recRef.current?.start(); } catch(e){} }, 500); }
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const cleanText = text.replace(/[*_#`]/g, '');
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'en-US';
+    
+    utterance.onstart = () => { setIsSpeaking(true); isSpeakingRef.current = true; };
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+      if (autoModeRef.current) {
+        setTimeout(() => { try { recRef.current?.start(); } catch(e){} }, 300);
+      }
+    };
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+      if (autoModeRef.current) {
+        setTimeout(() => { try { recRef.current?.start(); } catch(e){} }, 300);
+      }
+    };
+    window.speechSynthesis.speak(utterance);
+  };
 
   /* Auto-scroll */
   useEffect(() => {
@@ -116,28 +152,46 @@ export default function App() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
     const rec = new SR();
-    rec.continuous     = true; // Enable continuous listening
+    rec.continuous     = false; // False so it stops when user pauses, triggering onend
     rec.interimResults = true;
     rec.lang           = 'en-US';
-    rec.onstart  = () => { setListening(true); setTranscript(''); setView('listening'); };
+    rec.onstart  = () => { setListening(true); setTranscript(''); transcriptRef.current = ''; setView('listening'); };
     rec.onresult = e  => { 
       let text = '';
       for (let i = 0; i < e.results.length; i++) {
         text += e.results[i][0].transcript;
       }
       setTranscript(text); 
+      transcriptRef.current = text;
     };
     rec.onerror  = e  => {
       if (e.error === 'no-speech') return; // Ignore silence timeouts
       setListening(false);
-      setView(messages.length > 0 ? 'chat' : 'welcome');
       if (e.error !== 'aborted') {
         setError(`Voice error: ${e.error}. Allow microphone access.`);
+        setView('welcome');
+        autoModeRef.current = false;
       }
     };
-    rec.onend = () => setListening(false);
+    rec.onend = () => {
+      setListening(false);
+      if (autoModeRef.current && transcriptRef.current.trim()) {
+        if (sendMsgRef.current) sendMsgRef.current(transcriptRef.current);
+      } else if (autoModeRef.current && !isSpeakingRef.current) {
+        try { rec.start(); } catch(err){}
+      }
+    };
     recRef.current = rec;
-  }, [messages.length]);
+    
+    return () => {
+      rec.stop();
+    };
+  }, []);
+
+  /* Update sendMsgRef */
+  useEffect(() => {
+    sendMsgRef.current = sendMsg;
+  });
 
   /* Send message */
   const sendMsg = async (text) => {
@@ -175,6 +229,9 @@ export default function App() {
         { role: 'assistant', content: reply,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
       ]);
+      if (autoModeRef.current) {
+        speakText(reply);
+      }
     } catch (err) {
       setError(err.message || 'Connection error. Check your internet.');
     } finally {
@@ -184,19 +241,28 @@ export default function App() {
 
   /* Mic toggle */
   const toggleMic = () => {
-    if (!recRef.current) { setError('Speech recognition not supported. Try Google Chrome.'); return; }
-    if (listening) {
+    if (!recRef.current) { setError('Speech recognition not supported.'); return; }
+    if (autoModeRef.current || listening) {
+      // Turn OFF Alexa mode
+      autoModeRef.current = false;
       recRef.current.stop();
+      window.speechSynthesis?.cancel();
       setListening(false);
-      if (transcript.trim()) sendMsg(transcript);
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+      if (transcriptRef.current.trim()) sendMsg(transcriptRef.current);
       else setView(messages.length > 0 ? 'chat' : 'welcome');
     } else {
+      // Turn ON Alexa mode
+      autoModeRef.current = true;
       try { recRef.current.start(); } catch (e) { console.warn(e); }
     }
   };
 
   /* Close/reset */
   const closeChat = () => {
+    autoModeRef.current = false;
+    window.speechSynthesis?.cancel();
     setMessages([]); setError(null); setView('welcome'); setTranscript('');
   };
 
@@ -316,6 +382,7 @@ export default function App() {
             )}
 
             {loading && <div className="working-text">Aria is working...</div>}
+            {isSpeaking && <div className="working-text">Aria is speaking...</div>}
 
             {error && (
               <div className="err-msg">
@@ -373,7 +440,12 @@ export default function App() {
                 <button
                   id="voice-pause-btn"
                   className="ghost-btn"
-                  onClick={() => setView(messages.length > 0 ? 'chat' : 'welcome')}
+                  onClick={() => {
+                    autoModeRef.current = false;
+                    recRef.current?.stop();
+                    window.speechSynthesis?.cancel();
+                    setView(messages.length > 0 ? 'chat' : 'welcome');
+                  }}
                   aria-label="Pause"
                 >
                   <Pause size={16} />
