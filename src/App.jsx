@@ -116,15 +116,24 @@ export default function App() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
     const rec = new SR();
-    rec.continuous     = false;
+    rec.continuous     = true; // Enable continuous listening
     rec.interimResults = true;
     rec.lang           = 'en-US';
     rec.onstart  = () => { setListening(true); setTranscript(''); setView('listening'); };
-    rec.onresult = e  => { setTranscript(e.results[0][0].transcript); };
+    rec.onresult = e  => { 
+      let text = '';
+      for (let i = 0; i < e.results.length; i++) {
+        text += e.results[i][0].transcript;
+      }
+      setTranscript(text); 
+    };
     rec.onerror  = e  => {
+      if (e.error === 'no-speech') return; // Ignore silence timeouts
       setListening(false);
       setView(messages.length > 0 ? 'chat' : 'welcome');
-      setError(`Voice error: ${e.error}. Allow microphone access in your browser.`);
+      if (e.error !== 'aborted') {
+        setError(`Voice error: ${e.error}. Allow microphone access.`);
+      }
     };
     rec.onend = () => setListening(false);
     recRef.current = rec;
@@ -325,7 +334,11 @@ export default function App() {
             {/* Screen 1 controls */}
             {view === 'welcome' && (
               <>
-                <div className="welcome-prompt">
+                <div 
+                  className="welcome-prompt" 
+                  style={{ cursor: 'text' }}
+                  onClick={() => { setView('chat'); setTimeout(() => inputRef.current?.focus(), 100); }}
+                >
                   Ask AI a question or describe your idea
                 </div>
                 <div className="ctrl-row">
