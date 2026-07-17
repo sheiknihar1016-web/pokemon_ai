@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Mic, Send, X, Bell, Menu, Pause,
+  Mic, Send, X, Pause,
   ChevronDown, Paperclip, Sparkles, AlertCircle,
   Users, MessageSquare, Brain, Target, BookOpen
 } from 'lucide-react';
@@ -294,12 +294,6 @@ export default function App() {
                 </div>
               </div>
               <div className="header-right">
-                <button id="notif-btn" className="icon-btn" aria-label="Notifications">
-                  <Bell size={14} />
-                </button>
-                <button id="menu-btn" className="icon-btn" aria-label="Menu">
-                  <Menu size={14} />
-                </button>
               </div>
             </>
           )}
