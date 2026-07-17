@@ -102,6 +102,7 @@ export default function App() {
   const [transcript, setTranscript] = useState('');
   const [modeIdx, setModeIdx]     = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [currentAiReply, setCurrentAiReply] = useState('');
 
   const feedEnd  = useRef(null);
   const recRef   = useRef(null);
@@ -198,7 +199,9 @@ export default function App() {
     const content = (text ?? input).trim();
     if (!content || loading) return;
     setInput('');
-    setView('chat');
+    if (!autoModeRef.current) {
+      setView('chat');
+    }
     setError(null);
 
     const userMsg = { role: 'user', content,
@@ -230,6 +233,7 @@ export default function App() {
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
       ]);
       if (autoModeRef.current) {
+        setCurrentAiReply(reply);
         speakText(reply);
       }
     } catch (err) {
@@ -255,6 +259,14 @@ export default function App() {
     } else {
       // Turn ON Alexa mode
       autoModeRef.current = true;
+      
+      // IMPORTANT: Unlock TTS in the browser by playing an empty utterance 
+      // immediately upon user click. This prevents async fetch from blocking the TTS later.
+      if (window.speechSynthesis) {
+        const unlockUtterance = new SpeechSynthesisUtterance('');
+        window.speechSynthesis.speak(unlockUtterance);
+      }
+      
       try { recRef.current.start(); } catch (e) { console.warn(e); }
     }
   };
@@ -332,9 +344,11 @@ export default function App() {
             {view === 'listening' && (
               <div className="listening-wrap">
                 <div className="orb" />
-                <div className="orb-label">Aria is listening...</div>
+                <div className="orb-label">
+                  {loading ? 'Aria is thinking...' : (isSpeaking ? 'Aria is speaking...' : 'Aria is listening...')}
+                </div>
                 <div className="transcript-text">
-                  {transcript || '...'}
+                  {isSpeaking ? currentAiReply : (transcript || '...')}
                 </div>
               </div>
             )}
